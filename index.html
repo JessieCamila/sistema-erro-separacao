@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Sistema de Ocorrências</title>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+
+  <!-- Firebase SDK -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-app.js";
+    import {
+      getFirestore, collection, addDoc, getDocs, updateDoc, deleteDoc,
+      doc, query, orderBy, onSnapshot, serverTimestamp
+    } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyAFmPjh2nArGNRrkOlJ_bNTq4VhbIlTLPo",
+      authDomain: "devolucoes-loja.firebaseapp.com",
+      projectId: "devolucoes-loja",
+      storageBucket: "devolucoes-loja.firebasestorage.app",
+      messagingSenderId: "1082992552340",
+      appId: "1:1082992552340:web:c29d0ca4274eb429a1",
+      measurementId: "G-WFNND6ZGJ0"
+    };
+
+    const app  = initializeApp(firebaseConfig);
+    const db   = getFirestore(app);
+    const col  = collection(db, "ocorrencias");
+
+    // ── Expõe funções para o escopo global ──
+    window._db = db;
+
+    window.fbSalvar = async (campos) => {
+      return await addDoc(col, { ...campos, criadoEm: serverTimestamp() });
+    };
+    window.fbAtualizar = async (id, campos) => {
+      return await updateDoc(doc(db, "ocorrencias", id), campos);
+    };
+    window.fbDeletar = async (id) => {
+      return await deleteDoc(doc(db, "ocorrencias", id));
+    };
+    window.fbEscutar = (callback) => {
+      const q = query(col, orderBy("criadoEm", "desc"));
+      return onSnapshot(q, snap => {
+        const lista = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        callback(lista);
+      }, err => {
+        console.error(err);
+        toast("Erro ao conectar ao Firestore. Verifique as regras de segurança.", "erro");
+        setConn(false);
+      });
+    };
+
+    // Inicia escuta ao carregar
+    window.addEventListener("DOMContentLoaded", () => {
+      setConn(true);
+      window.fbEscutar((lista) => {
+        window._dados = lista;
+        filtrar();
+        atualizarCards();
+      });
+    });
+  </script>
+
+  <style>
+    :root {
+      --bg:       #0f1117;
+      --surface:  #181c27;
+      --surface2: #1e2334;
+      --border:   #2a3045;
+      --accent:   #e63946;
+      --green:    #2ec27e;
+      --yellow:   #f4a261;
+      --blue:     #4895ef;
+      --text:     #e8eaf0;
+      --dim:      #8892a4;
+      --mono:     'IBM Plex Mono', monospace;
+      --sans:     'IBM Plex Sans', sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: var(--sans); background: var(--bg); color: var(--text); min-height: 100vh; }
+
+    /* ── Header ── */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 32px;
+      display: flex; align-items: center; justify-content: space-between;
+      position: sticky; top: 0; z-index: 100;
+    }
+    .logo { display: flex; align-items: center; gap: 12px; }
+    .logo-icon {
+      width: 36px; height: 36px; background: var(--accent);
+      border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 18px;
+    }
+    .logo-text { font-family: var(--mono); font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+    .logo-sub  { font-family: var(--mono); font-size: 11px; color: var(--dim); letter-spacing: .05em; }
+    #conn-status { font-family: var(--mono); font-size: 11px; display: flex; align-items: center; gap: 6px; color: var(--dim); }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); transition: .4s; }
+    .dot.ok  { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .dot.err { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+
+    /* ── Lojas pills ── */
+    .lojas-bar {
+      display: flex; gap: 8px; padding: 12px 32px;
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+    }
+    .loja-pill {
+      padding: 5px 16px; border-radius: 20px; font-family: var(--mono);
+      font-size: 11px; font-weight: 600; letter-spacing: .06em; cursor: pointer;
+      border: 1px solid var(--border); background: transparent; color: var(--dim);
+      transition: .2s;
+    }
+    .loja-pill:hover { color: var(--text); border-color: var(--dim); }
+    .loja-pill.ativo { color: #000; border-color: transparent; }
+    .loja-pill[data-loja="Todos"].ativo  { background: var(--dim); color: #000; }
+    .loja-pill[data-loja="Mapu"].ativo   { background: var(--blue); }
+    .loja-pill[data-loja="P&M"].ativo    { background: var(--yellow); }
+    .loja-pill[data-loja="AIVY"].ativo   { background: var(--green); }
+    .loja-pill[data-loja="Mapupy"].ativo { background: var(--accent); color: #fff; }
+
+    /* ── Main ── */
+    main { padding: 24px 32px 60px; max-width: 1340px; margin: 0 auto; }
+
+    /* ── Cards ── */
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px,1fr)); gap: 14px; margin-bottom: 24px; }
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 8px; padding: 18px 20px; position: relative; overflow: hidden;
+    }
+    .card::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; }
+    .card.c-red::before    { background: var(--accent); }
+    .card.c-yellow::before { background: var(--yellow); }
+    .card.c-green::before  { background: var(--green); }
+    .card.c-blue::before   { background: var(--blue); }
+    .card-label { font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); margin-bottom: 8px; }
+    .card-val   { font-family: var(--mono); font-size: 22px; font-weight: 600; }
+    .card.c-red .card-val    { color: var(--accent); }
+    .card.c-yellow .card-val { color: var(--yellow); }
+    .card.c-green .card-val  { color: var(--green); }
+    .card.c-blue .card-val   { color: var(--blue); }
+
+    /* ── Formulário ── */
+    .form-box {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 8px; padding: 22px 24px; margin-bottom: 24px;
+    }
+    .form-box h3 {
+      font-family: var(--mono); font-size: 11px; letter-spacing: .1em;
+      text-transform: uppercase; color: var(--dim);
+      margin-bottom: 18px; padding-bottom: 12px; border-bottom: 1px solid var(--border);
+    }
+    .fgrid { display: grid; grid-template-columns: repeat(4,1fr); gap: 13px; }
+    .fgrid .s2 { grid-column: span 2; }
+    .fgrid .s4 { grid-column: span 4; }
+    .fg { display: flex; flex-direction: column; gap: 5px; }
+    .fg label { font-family: var(--mono); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
+    .fg input, .fg select {
+      background: var(--bg); border: 1px solid var(--border); color: var(--text);
+      padding: 9px 11px; border-radius: 5px; font-family: var(--sans); font-size: 14px;
+      transition: border-color .2s; appearance: none;
+    }
+    .fg input:focus, .fg select:focus { outline: none; border-color: var(--blue); background: #12161f; }
+    .fg input::placeholder { color: #3a4255; }
+    .form-actions { display: flex; gap: 10px; margin-top: 14px; }
+    .btn-reg {
+      background: var(--accent); color: #fff; border: none;
+      padding: 10px 26px; border-radius: 5px; font-family: var(--mono);
+      font-size: 12px; font-weight: 600; cursor: pointer; letter-spacing: .05em; transition: opacity .2s;
+    }
+    .btn-reg:hover { opacity: .85; }
+    .btn-reg.edit  { background: var(--yellow); color: #000; }
+    .btn-cancel {
+      background: transparent; color: var(--dim); border: 1px solid var(--border);
+      padding: 10px 18px; border-radius: 5px; font-family: var(--mono);
+      font-size: 11px; cursor: pointer; display: none;
+    }
+    .btn-cancel.show { display: block; }
+    .btn-cancel:hover { color: var(--text); border-color: var(--dim); }
+
+    /* ── Filtros ── */
+    .filtros { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; align-items: center; }
+    .filtros input, .filtros select {
+      background: var(--surface); border: 1px solid var(--border); color: var(--text);
+      padding: 8px 12px; border-radius: 5px; font-family: var(--sans); font-size: 13px;
+    }
+    .filtros input { flex: 1; min-width: 180px; }
+    .filtros input::placeholder { color: #3a4255; }
+    .filtros input:focus, .filtros select:focus { outline: none; border-color: var(--blue); }
+    .btn-csv {
+      background: var(--surface2); border: 1px solid var(--border); color: var(--dim);
+      padding: 8px 14px; border-radius: 5px; font-family: var(--mono); font-size: 11px;
+      cursor: pointer; letter-spacing: .05em; margin-left: auto;
+    }
+    .btn-csv:hover { color: var(--text); border-color: var(--dim); }
+
+    /* ── Tabela ── */
+    .tbl-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    thead tr { background: var(--surface2); }
+    th {
+      padding: 11px 13px; text-align: left;
+      font-family: var(--mono); font-size: 10px; font-weight: 600;
+      letter-spacing: .1em; text-transform: uppercase; color: var(--dim);
+      border-bottom: 1px solid var(--border); white-space: nowrap;
+    }
+    td { padding: 11px 13px; border-bottom: 1px solid #1e2334; vertical-align: middle; }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover { background: #1a1f2e; }
+
+    /* loja badge colorido */
+    .loja-tag {
+      display: inline-block; padding: 3px 9px; border-radius: 4px;
+      font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: .04em;
+    }
+    .loja-tag.Mapu   { background: #0d1e3a; color: var(--blue); border: 1px solid #4895ef44; }
+    .loja-tag.PM     { background: #2d2200; color: var(--yellow); border: 1px solid #f4a26144; }
+    .loja-tag.AIVY   { background: #0d2e1a; color: var(--green); border: 1px solid #2ec27e44; }
+    .loja-tag.Mapupy { background: #2a0a0a; color: #ff6b6b;    border: 1px solid #e6394644; }
+
+    .badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 4px; font-family: var(--mono); font-size: 11px; font-weight: 600; white-space: nowrap; }
+    .badge.pendente  { background: #3d1a1a; color: #ff6b6b; }
+    .badge.analise   { background: #2d2200; color: var(--yellow); }
+    .badge.resolvido { background: #0d2e1a; color: var(--green); }
+
+    .mono-sm  { font-family: var(--mono); font-size: 12px; color: var(--dim); }
+    .pedido-id{ font-family: var(--mono); font-size: 12px; color: var(--blue); font-weight: 600; }
+    .val-neg  { font-family: var(--mono); color: var(--accent); font-weight: 600; }
+    .val-zero { font-family: var(--mono); color: var(--dim); }
+
+    /* ── Botões de ação ── */
+    .acao-btns { display: flex; gap: 6px; align-items: center; }
+    .btn-icon {
+      width: 32px; height: 32px; border-radius: 5px; border: none;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; transition: opacity .2s, transform .1s;
+      flex-shrink: 0;
+    }
+    .btn-icon:hover { opacity: .75; transform: scale(1.08); }
+    .btn-icon:active { transform: scale(.95); }
+    .btn-icon.editar  { background: #2d2200; border: 1px solid #f4a26133; }
+    .btn-icon.lixeira { background: #2a0a0a; border: 1px solid #e6394633; }
+    .btn-icon svg { width: 15px; height: 15px; }
+
+    /* ── Empty / Loading ── */
+    .empty { text-align: center; padding: 60px 20px; color: var(--dim); }
+    .empty .icone { font-size: 38px; margin-bottom: 10px; }
+    .empty p { font-family: var(--mono); font-size: 12px; }
+    .spinner {
+      display: inline-block; width: 16px; height: 16px;
+      border: 2px solid var(--border); border-top-color: var(--accent);
+      border-radius: 50%; animation: spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Toast ── */
+    #toast {
+      position: fixed; bottom: 24px; right: 24px;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 6px; padding: 11px 18px;
+      font-family: var(--mono); font-size: 12px; color: var(--text);
+      opacity: 0; transform: translateY(8px); transition: all .3s;
+      z-index: 999; pointer-events: none; max-width: 320px;
+    }
+    #toast.show { opacity: 1; transform: translateY(0); }
+    #toast.ok   { border-left: 3px solid var(--green); }
+    #toast.erro { border-left: 3px solid var(--accent); }
+
+    /* ── Responsive ── */
+    @media (max-width: 900px) {
+      header, .lojas-bar { padding: 14px 16px; }
+      main { padding: 16px 16px 60px; }
+      .fgrid { grid-template-columns: 1fr 1fr; }
+      .fgrid .s4 { grid-column: span 2; }
+    }
+    @media (max-width: 580px) {
+      .fgrid { grid-template-columns: 1fr; }
+      .fgrid .s2, .fgrid .s4 { grid-column: span 1; }
+      .cards { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">⚠️</div>
+    <div>
+      <div class="logo-text">Ocorrências</div>
+      <div class="logo-sub">devolucoes-loja · Firestore</div>
+    </div>
+  </div>
+  <div id="conn-status">
+    <div class="dot" id="dot"></div>
+    <span id="conn-txt">conectando…</span>
+  </div>
+</header>
+
+<!-- Filtro rápido por loja -->
+<div class="lojas-bar">
+  <button class="loja-pill ativo" data-loja="Todos"  onclick="filtrarLoja('Todos')">Todas as lojas</button>
+  <button class="loja-pill"       data-loja="Mapu"   onclick="filtrarLoja('Mapu')">Mapu</button>
+  <button class="loja-pill"       data-loja="P&M"    onclick="filtrarLoja('P&M')">P&amp;M</button>
+  <button class="loja-pill"       data-loja="AIVY"   onclick="filtrarLoja('AIVY')">AIVY</button>
+  <button class="loja-pill"       data-loja="Mapupy" onclick="filtrarLoja('Mapupy')">Mapupy</button>
+</div>
+
+<main>
+  <!-- Cards resumo -->
+  <div class="cards">
+    <div class="card c-red">
+      <div class="card-label">Prejuízo Total</div>
+      <div class="card-val" id="c-total">R$ 0,00</div>
+    </div>
+    <div class="card c-yellow">
+      <div class="card-label">Pendentes</div>
+      <div class="card-val" id="c-pend">0</div>
+    </div>
+    <div class="card c-green">
+      <div class="card-label">Resolvidos</div>
+      <div class="card-val" id="c-resol">0</div>
+    </div>
+    <div class="card c-blue">
+      <div class="card-label">Total Registros</div>
+      <div class="card-val" id="c-tot">0</div>
+    </div>
+  </div>
+
+  <!-- Formulário -->
+  <div class="form-box">
+    <h3 id="form-titulo">▸ Nova Ocorrência</h3>
+    <div class="fgrid">
+      <div class="fg">
+        <label>Data</label>
+        <input type="date" id="f-data"/>
+      </div>
+      <div class="fg">
+        <label>Loja</label>
+        <select id="f-loja">
+          <option value="">— Selecione —</option>
+          <option value="Mapu">Mapu</option>
+          <option value="P&M">P&amp;M</option>
+          <option value="AIVY">AIVY</option>
+          <option value="Mapupy">Mapupy</option>
+        </select>
+      </div>
+      <div class="fg">
+        <label>ID do Pedido</label>
+        <input type="text" id="f-pedido" placeholder="Ex: 100254"/>
+      </div>
+      <div class="fg">
+        <label>Quem errou</label>
+        <input type="text" id="f-pessoa" placeholder="Nome do funcionário"/>
+      </div>
+      <div class="fg s2">
+        <label>Produto</label>
+        <input type="text" id="f-produto" placeholder="Descrição do produto"/>
+      </div>
+      <div class="fg s2">
+        <label>Descrição do Erro</label>
+        <input type="text" id="f-erro" placeholder="O que aconteceu?"/>
+      </div>
+      <div class="fg">
+        <label>Status</label>
+        <select id="f-status">
+          <option value="Pendente">🔴 Pendente</option>
+          <option value="Em Análise">🟡 Em Análise</option>
+          <option value="Resolvido">🟢 Resolvido</option>
+        </select>
+      </div>
+      <div class="fg">
+        <label>Valor Perdido (R$)</label>
+        <input type="number" id="f-valor" step="0.01" placeholder="0.00"/>
+      </div>
+    </div>
+    <div class="form-actions">
+      <button class="btn-reg" id="btn-salvar" onclick="salvar()">Registrar Ocorrência</button>
+      <button class="btn-cancel" id="btn-cancel" onclick="cancelar()">Cancelar edição</button>
+    </div>
+  </div>
+
+  <!-- Filtros -->
+  <div class="filtros">
+    <input type="text" id="f-busca" placeholder="🔍  Buscar por pessoa, pedido, produto, erro…" oninput="filtrar()"/>
+    <select id="f-status-filtro" onchange="filtrar()">
+      <option value="">Todos os status</option>
+      <option value="Pendente">🔴 Pendente</option>
+      <option value="Em Análise">🟡 Em Análise</option>
+      <option value="Resolvido">🟢 Resolvido</option>
+    </select>
+    <button class="btn-csv" onclick="exportarCSV()">⬇ Exportar CSV</button>
+  </div>
+
+  <!-- Tabela -->
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Data</th>
+          <th>Loja</th>
+          <th>Pedido</th>
+          <th>Funcionário</th>
+          <th>Produto</th>
+          <th>Erro</th>
+          <th>Status</th>
+          <th>Valor Perdido</th>
+          <th>Ações</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+    <div id="empty" class="empty">
+      <div class="icone">⏳</div>
+      <p>Conectando ao Firebase…</p>
+    </div>
+  </div>
+</main>
+
+<div id="toast"></div>
+
+<script>
+  // ── Estado ──
+  window._dados = [];
+  let filtroLoja   = "Todos";
+  let editandoId   = null;
+  let dadosFiltrados = [];
+
+  // ── Conexão visual ──
+  function setConn(ok) {
+    document.getElementById('dot').className = 'dot ' + (ok ? 'ok' : 'err');
+    document.getElementById('conn-txt').textContent = ok ? 'conectado' : 'erro de conexão';
+  }
+
+  // ── Filtro por pill de loja ──
+  function filtrarLoja(loja) {
+    filtroLoja = loja;
+    document.querySelectorAll('.loja-pill').forEach(p => {
+      p.classList.toggle('ativo', p.dataset.loja === loja);
+    });
+    filtrar();
+  }
+
+  // ── Filtro principal ──
+  function filtrar() {
+    const busca  = (document.getElementById('f-busca')?.value || '').toLowerCase();
+    const status = document.getElementById('f-status-filtro')?.value || '';
+
+    dadosFiltrados = (window._dados || []).filter(d => {
+      const matchLoja   = filtroLoja === 'Todos' || d.loja === filtroLoja;
+      const matchStatus = !status || d.status === status;
+      const matchBusca  = !busca || [d.loja,d.pedido,d.pessoa,d.produto,d.erro]
+        .some(v => v && v.toLowerCase().includes(busca));
+      return matchLoja && matchStatus && matchBusca;
+    });
+
+    renderTabela();
+  }
+
+  // ── Render tabela ──
+  function renderTabela() {
+    const tbody = document.getElementById('tbody');
+    const empty = document.getElementById('empty');
+
+    if (!dadosFiltrados.length) {
+      tbody.innerHTML = '';
+      empty.style.display = '';
+      empty.innerHTML = '<div class="icone">📭</div><p>Nenhum registro encontrado.</p>';
+      return;
+    }
+    empty.style.display = 'none';
+
+    // SVG icons
+    const iconEdit = `<svg viewBox="0 0 24 24" fill="none" stroke="#f4a261" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
+    const iconDel  = `<svg viewBox="0 0 24 24" fill="none" stroke="#ff6b6b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>`;
+
+    tbody.innerHTML = dadosFiltrados.map(d => {
+      const valor = parseFloat(d.valor) || 0;
+      const sc    = d.status === 'Resolvido' ? 'resolvido' : d.status === 'Em Análise' ? 'analise' : 'pendente';
+      const se    = d.status === 'Resolvido' ? '🟢' : d.status === 'Em Análise' ? '🟡' : '🔴';
+      const lojaClass = d.loja === 'P&M' ? 'PM' : (d.loja || '');
+      const idEsc = d.id.replace(/'/g, "\\'");
+      return `<tr>
+        <td class="mono-sm">${fmtData(d.data)}</td>
+        <td><span class="loja-tag ${lojaClass}">${d.loja || '-'}</span></td>
+        <td class="pedido-id">${d.pedido || '-'}</td>
+        <td>${d.pessoa || '-'}</td>
+        <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(d.produto)}">${d.produto || '-'}</td>
+        <td style="max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(d.erro)}">${d.erro || '-'}</td>
+        <td><span class="badge ${sc}">${se} ${d.status}</span></td>
+        <td class="${valor > 0 ? 'val-neg' : 'val-zero'}">${moeda(valor)}</td>
+        <td>
+          <div class="acao-btns">
+            <button class="btn-icon editar"  title="Editar"  onclick="editar('${idEsc}')">${iconEdit}</button>
+            <button class="btn-icon lixeira" title="Excluir" onclick="deletar('${idEsc}')">${iconDel}</button>
+          </div>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+
+  // ── Cards resumo (baseado em TODOS os dados, não só filtrados) ──
+  function atualizarCards() {
+    const lista = window._dados || [];
+    const total = lista.reduce((s,d) => s + (parseFloat(d.valor)||0), 0);
+    document.getElementById('c-total').textContent = moeda(total);
+    document.getElementById('c-pend').textContent  = lista.filter(d=>d.status==='Pendente').length;
+    document.getElementById('c-resol').textContent = lista.filter(d=>d.status==='Resolvido').length;
+    document.getElementById('c-tot').textContent   = lista.length;
+  }
+
+  // ── Salvar / Atualizar ──
+  async function salvar() {
+    const campos = {
+      data:    document.getElementById('f-data').value,
+      loja:    document.getElementById('f-loja').value,
+      pedido:  document.getElementById('f-pedido').value.trim(),
+      pessoa:  document.getElementById('f-pessoa').value.trim(),
+      produto: document.getElementById('f-produto').value.trim(),
+      erro:    document.getElementById('f-erro').value.trim(),
+      status:  document.getElementById('f-status').value,
+      valor:   parseFloat(document.getElementById('f-valor').value) || 0,
+    };
+
+    if (!campos.data || !campos.loja || !campos.pedido || !campos.pessoa || !campos.produto || !campos.erro) {
+      toast('Preencha todos os campos obrigatórios.', 'erro'); return;
+    }
+
+    const btn = document.getElementById('btn-salvar');
+    btn.textContent = '…'; btn.disabled = true;
+
+    try {
+      if (editandoId) {
+        await window.fbAtualizar(editandoId, campos);
+        toast('Ocorrência atualizada! ✓', 'ok');
+        cancelar();
+      } else {
+        await window.fbSalvar(campos);
+        toast('Ocorrência registrada! ✓', 'ok');
+        limparForm();
+      }
+    } catch(e) {
+      toast('Erro ao salvar: ' + e.message, 'erro');
+    }
+
+    btn.disabled = false;
+    resetBtn();
+  }
+
+  // ── Editar ──
+  function editar(id) {
+    const item = window._dados.find(d => d.id === id);
+    if (!item) return;
+    editandoId = id;
+    document.getElementById('f-data').value    = item.data || '';
+    document.getElementById('f-loja').value    = item.loja || '';
+    document.getElementById('f-pedido').value  = item.pedido || '';
+    document.getElementById('f-pessoa').value  = item.pessoa || '';
+    document.getElementById('f-produto').value = item.produto || '';
+    document.getElementById('f-erro').value    = item.erro || '';
+    document.getElementById('f-status').value  = item.status || 'Pendente';
+    document.getElementById('f-valor').value   = item.valor || 0;
+
+    const btn = document.getElementById('btn-salvar');
+    btn.textContent = 'Atualizar Ocorrência';
+    btn.classList.add('edit');
+    document.getElementById('btn-cancel').classList.add('show');
+    document.getElementById('form-titulo').textContent = '✏️ Editando Ocorrência';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  // ── Deletar ──
+  async function deletar(id) {
+    if (!confirm('Apagar este registro permanentemente?')) return;
+    try {
+      await window.fbDeletar(id);
+      toast('Registro excluído.', 'ok');
+      if (editandoId === id) cancelar();
+    } catch(e) {
+      toast('Erro ao excluir: ' + e.message, 'erro');
+    }
+  }
+
+  // ── Cancelar edição ──
+  function cancelar() {
+    editandoId = null;
+    limparForm();
+    resetBtn();
+    document.getElementById('btn-cancel').classList.remove('show');
+    document.getElementById('form-titulo').textContent = '▸ Nova Ocorrência';
+  }
+
+  function resetBtn() {
+    const btn = document.getElementById('btn-salvar');
+    btn.textContent = 'Registrar Ocorrência';
+    btn.classList.remove('edit');
+    btn.disabled = false;
+  }
+
+  function limparForm() {
+    ['f-pedido','f-pessoa','f-produto','f-erro','f-valor'].forEach(id => {
+      document.getElementById(id).value = '';
+    });
+    document.getElementById('f-loja').value   = '';
+    document.getElementById('f-status').value = 'Pendente';
+  }
+
+  // ── Exportar CSV ──
+  function exportarCSV() {
+    if (!dadosFiltrados.length) { toast('Nenhum dado para exportar.', 'erro'); return; }
+    const header = ['Data','Loja','Pedido','Funcionário','Produto','Erro','Status','Valor'];
+    const rows = dadosFiltrados.map(d =>
+      [d.data,d.loja,d.pedido,d.pessoa,d.produto,d.erro,d.status,d.valor]
+      .map(v => `"${String(v||'').replace(/"/g,'""')}"`).join(',')
+    );
+    const csv  = [header.join(','), ...rows].join('\n');
+    const blob = new Blob(['\uFEFF'+csv], { type:'text/csv;charset=utf-8;' });
+    const a    = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'ocorrencias.csv';
+    a.click();
+    toast('CSV exportado! ✓', 'ok');
+  }
+
+  // ── Utilitários ──
+  function fmtData(iso) {
+    if (!iso) return '-';
+    const [a,m,d] = iso.split('-');
+    return `${d}/${m}/${a}`;
+  }
+  function moeda(v) {
+    return (parseFloat(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+  }
+  function esc(s) {
+    return String(s||'').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+  }
+
+  let _toastTimer;
+  function toast(msg, tipo='ok') {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.className = 'show ' + tipo;
+    clearTimeout(_toastTimer);
+    _toastTimer = setTimeout(() => el.className = '', 3500);
+  }
+
+  // Data de hoje no formulário
+  window.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('f-data').value = new Date().toISOString().split('T')[0];
+  });
+</script>
+</body>
+</html>
