@@ -268,6 +268,30 @@
     #toast.ok   { border-left: 3px solid var(--green); }
     #toast.erro { border-left: 3px solid var(--accent); }
 
+
+    /* ── Modal de leitura completa ── */
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,.7);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 1000; padding: 20px; opacity: 0; pointer-events: none; transition: opacity .2s;
+    }
+    .modal-overlay.aberto { opacity: 1; pointer-events: all; }
+    .modal-box {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 10px; padding: 28px; max-width: 560px; width: 100%;
+      max-height: 80vh; overflow-y: auto;
+    }
+    .modal-box h4 { font-family: var(--mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); margin-bottom: 14px; }
+    .modal-box p { font-size: 15px; line-height: 1.7; color: var(--text); white-space: pre-wrap; word-break: break-word; }
+    .modal-fechar {
+      margin-top: 20px; background: var(--accent); color: #fff; border: none;
+      padding: 9px 22px; border-radius: 5px; font-family: var(--mono); font-size: 12px;
+      cursor: pointer; font-weight: 600;
+    }
+    .modal-fechar:hover { opacity: .85; }
+    .texto-clicavel { cursor: pointer; text-decoration: underline dotted; color: var(--blue); }
+    .texto-clicavel:hover { color: #fff; }
+
     /* ── Responsive ── */
     @media (max-width: 900px) {
       header, .lojas-bar { padding: 14px 16px; }
@@ -487,7 +511,7 @@
         <td class="pedido-id">${d.pedido || '-'}</td>
         <td>${d.pessoa || '-'}</td>
         <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(d.produto)}">${d.produto || '-'}</td>
-        <td style="max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(d.erro)}">${d.erro || '-'}</td>
+        <td style="max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span class="texto-clicavel" onclick="abrirModal('Descrição do Erro', '${esc(d.erro)}')" title="Clique para ler completo">${d.erro || '-'}</span></td>
         <td><span class="badge ${sc}">${se} ${d.status}</span></td>
         <td class="${valor > 0 ? 'val-neg' : 'val-zero'}">${moeda(valor)}</td>
         <td>
@@ -645,10 +669,32 @@
     _toastTimer = setTimeout(() => el.className = '', 3500);
   }
 
+
+  function abrirModal(titulo, texto) {
+    document.getElementById('modalTitulo').textContent = titulo;
+    document.getElementById('modalTexto').textContent = texto;
+    document.getElementById('modalOverlay').classList.add('aberto');
+  }
+  function fecharModal(e) {
+    if (e.target === document.getElementById('modalOverlay')) {
+      document.getElementById('modalOverlay').classList.remove('aberto');
+    }
+  }
+
   // Data de hoje no formulário
   window.addEventListener('DOMContentLoaded', () => {
     document.getElementById('f-data').value = new Date().toISOString().split('T')[0];
   });
 </script>
+
+<!-- Modal leitura completa -->
+<div class="modal-overlay" id="modalOverlay" onclick="fecharModal(event)">
+  <div class="modal-box">
+    <h4 id="modalTitulo">Descrição completa</h4>
+    <p id="modalTexto"></p>
+    <button class="modal-fechar" onclick="document.getElementById('modalOverlay').classList.remove('aberto')">Fechar</button>
+  </div>
+</div>
+
 </body>
 </html>
