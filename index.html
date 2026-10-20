@@ -1,700 +1,289 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Sistema de Ocorrências</title>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
-
-  <!-- Firebase SDK -->
-  <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-app.js";
-    import {
-      getFirestore, collection, addDoc, getDocs, updateDoc, deleteDoc,
-      doc, query, orderBy, onSnapshot, serverTimestamp
-    } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-firestore.js";
-
-    const firebaseConfig = {
-      apiKey: "AIzaSyAFmPjh2nArGNRrkOlJ_bNTq4VhbIlTLPo",
-      authDomain: "devolucoes-loja.firebaseapp.com",
-      projectId: "devolucoes-loja",
-      storageBucket: "devolucoes-loja.firebasestorage.app",
-      messagingSenderId: "1082992552340",
-      appId: "1:1082992552340:web:c29d0ca4274eb429a1",
-      measurementId: "G-WFNND6ZGJ0"
-    };
-
-    const app  = initializeApp(firebaseConfig);
-    const db   = getFirestore(app);
-    const col  = collection(db, "ocorrencias");
-
-    // ── Expõe funções para o escopo global ──
-    window._db = db;
-
-    window.fbSalvar = async (campos) => {
-      return await addDoc(col, { ...campos, criadoEm: serverTimestamp() });
-    };
-    window.fbAtualizar = async (id, campos) => {
-      return await updateDoc(doc(db, "ocorrencias", id), campos);
-    };
-    window.fbDeletar = async (id) => {
-      return await deleteDoc(doc(db, "ocorrencias", id));
-    };
-    window.fbEscutar = (callback) => {
-      const q = query(col, orderBy("criadoEm", "desc"));
-      return onSnapshot(q, snap => {
-        const lista = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        callback(lista);
-      }, err => {
-        console.error(err);
-        toast("Erro ao conectar ao Firestore. Verifique as regras de segurança.", "erro");
-        setConn(false);
-      });
-    };
-
-    // Inicia escuta ao carregar
-    window.addEventListener("DOMContentLoaded", () => {
-      setConn(true);
-      window.fbEscutar((lista) => {
-        window._dados = lista;
-        filtrar();
-        atualizarCards();
-      });
-    });
-  </script>
-
-  <style>
-    :root {
-      --bg:       #0f1117;
-      --surface:  #181c27;
-      --surface2: #1e2334;
-      --border:   #2a3045;
-      --accent:   #e63946;
-      --green:    #2ec27e;
-      --yellow:   #f4a261;
-      --blue:     #4895ef;
-      --text:     #e8eaf0;
-      --dim:      #8892a4;
-      --mono:     'IBM Plex Mono', monospace;
-      --sans:     'IBM Plex Sans', sans-serif;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: var(--sans); background: var(--bg); color: var(--text); min-height: 100vh; }
-
-    /* ── Header ── */
-    header {
-      background: var(--surface);
-      border-bottom: 1px solid var(--border);
-      padding: 16px 32px;
-      display: flex; align-items: center; justify-content: space-between;
-      position: sticky; top: 0; z-index: 100;
-    }
-    .logo { display: flex; align-items: center; gap: 12px; }
-    .logo-icon {
-      width: 36px; height: 36px; background: var(--accent);
-      border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 18px;
-    }
-    .logo-text { font-family: var(--mono); font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
-    .logo-sub  { font-family: var(--mono); font-size: 11px; color: var(--dim); letter-spacing: .05em; }
-    #conn-status { font-family: var(--mono); font-size: 11px; display: flex; align-items: center; gap: 6px; color: var(--dim); }
-    .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); transition: .4s; }
-    .dot.ok  { background: var(--green); box-shadow: 0 0 6px var(--green); }
-    .dot.err { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
-
-    /* ── Lojas pills ── */
-    .lojas-bar {
-      display: flex; gap: 8px; padding: 12px 32px;
-      background: var(--surface); border-bottom: 1px solid var(--border);
-      flex-wrap: wrap;
-    }
-    .loja-pill {
-      padding: 5px 16px; border-radius: 20px; font-family: var(--mono);
-      font-size: 11px; font-weight: 600; letter-spacing: .06em; cursor: pointer;
-      border: 1px solid var(--border); background: transparent; color: var(--dim);
-      transition: .2s;
-    }
-    .loja-pill:hover { color: var(--text); border-color: var(--dim); }
-    .loja-pill.ativo { color: #000; border-color: transparent; }
-    .loja-pill[data-loja="Todos"].ativo  { background: var(--dim); color: #000; }
-    .loja-pill[data-loja="Mapu"].ativo   { background: var(--blue); }
-    .loja-pill[data-loja="P&M"].ativo    { background: var(--yellow); }
-    .loja-pill[data-loja="AIVY"].ativo   { background: var(--green); }
-    .loja-pill[data-loja="Mapupy"].ativo { background: var(--accent); color: #fff; }
-
-    /* ── Main ── */
-    main { padding: 24px 32px 60px; max-width: 1340px; margin: 0 auto; }
-
-    /* ── Cards ── */
-    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px,1fr)); gap: 14px; margin-bottom: 24px; }
-    .card {
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: 8px; padding: 18px 20px; position: relative; overflow: hidden;
-    }
-    .card::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; }
-    .card.c-red::before    { background: var(--accent); }
-    .card.c-yellow::before { background: var(--yellow); }
-    .card.c-green::before  { background: var(--green); }
-    .card.c-blue::before   { background: var(--blue); }
-    .card-label { font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); margin-bottom: 8px; }
-    .card-val   { font-family: var(--mono); font-size: 22px; font-weight: 600; }
-    .card.c-red .card-val    { color: var(--accent); }
-    .card.c-yellow .card-val { color: var(--yellow); }
-    .card.c-green .card-val  { color: var(--green); }
-    .card.c-blue .card-val   { color: var(--blue); }
-
-    /* ── Formulário ── */
-    .form-box {
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: 8px; padding: 22px 24px; margin-bottom: 24px;
-    }
-    .form-box h3 {
-      font-family: var(--mono); font-size: 11px; letter-spacing: .1em;
-      text-transform: uppercase; color: var(--dim);
-      margin-bottom: 18px; padding-bottom: 12px; border-bottom: 1px solid var(--border);
-    }
-    .fgrid { display: grid; grid-template-columns: repeat(4,1fr); gap: 13px; }
-    .fgrid .s2 { grid-column: span 2; }
-    .fgrid .s4 { grid-column: span 4; }
-    .fg { display: flex; flex-direction: column; gap: 5px; }
-    .fg label { font-family: var(--mono); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
-    .fg input, .fg select {
-      background: var(--bg); border: 1px solid var(--border); color: var(--text);
-      padding: 9px 11px; border-radius: 5px; font-family: var(--sans); font-size: 14px;
-      transition: border-color .2s; appearance: none;
-    }
-    .fg input:focus, .fg select:focus { outline: none; border-color: var(--blue); background: #12161f; }
-    .fg input::placeholder { color: #3a4255; }
-    .form-actions { display: flex; gap: 10px; margin-top: 14px; }
-    .btn-reg {
-      background: var(--accent); color: #fff; border: none;
-      padding: 10px 26px; border-radius: 5px; font-family: var(--mono);
-      font-size: 12px; font-weight: 600; cursor: pointer; letter-spacing: .05em; transition: opacity .2s;
-    }
-    .btn-reg:hover { opacity: .85; }
-    .btn-reg.edit  { background: var(--yellow); color: #000; }
-    .btn-cancel {
-      background: transparent; color: var(--dim); border: 1px solid var(--border);
-      padding: 10px 18px; border-radius: 5px; font-family: var(--mono);
-      font-size: 11px; cursor: pointer; display: none;
-    }
-    .btn-cancel.show { display: block; }
-    .btn-cancel:hover { color: var(--text); border-color: var(--dim); }
-
-    /* ── Filtros ── */
-    .filtros { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; align-items: center; }
-    .filtros input, .filtros select {
-      background: var(--surface); border: 1px solid var(--border); color: var(--text);
-      padding: 8px 12px; border-radius: 5px; font-family: var(--sans); font-size: 13px;
-    }
-    .filtros input { flex: 1; min-width: 180px; }
-    .filtros input::placeholder { color: #3a4255; }
-    .filtros input:focus, .filtros select:focus { outline: none; border-color: var(--blue); }
-    .btn-csv {
-      background: var(--surface2); border: 1px solid var(--border); color: var(--dim);
-      padding: 8px 14px; border-radius: 5px; font-family: var(--mono); font-size: 11px;
-      cursor: pointer; letter-spacing: .05em; margin-left: auto;
-    }
-    .btn-csv:hover { color: var(--text); border-color: var(--dim); }
-
-    /* ── Tabela ── */
-    .tbl-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
-    table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    thead tr { background: var(--surface2); }
-    th {
-      padding: 11px 13px; text-align: left;
-      font-family: var(--mono); font-size: 10px; font-weight: 600;
-      letter-spacing: .1em; text-transform: uppercase; color: var(--dim);
-      border-bottom: 1px solid var(--border); white-space: nowrap;
-    }
-    td { padding: 11px 13px; border-bottom: 1px solid #1e2334; vertical-align: middle; }
-    tbody tr:last-child td { border-bottom: none; }
-    tbody tr:hover { background: #1a1f2e; }
-
-    /* loja badge colorido */
-    .loja-tag {
-      display: inline-block; padding: 3px 9px; border-radius: 4px;
-      font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: .04em;
-    }
-    .loja-tag.Mapu   { background: #0d1e3a; color: var(--blue); border: 1px solid #4895ef44; }
-    .loja-tag.PM     { background: #2d2200; color: var(--yellow); border: 1px solid #f4a26144; }
-    .loja-tag.AIVY   { background: #0d2e1a; color: var(--green); border: 1px solid #2ec27e44; }
-    .loja-tag.Mapupy { background: #2a0a0a; color: #ff6b6b;    border: 1px solid #e6394644; }
-
-    .badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 4px; font-family: var(--mono); font-size: 11px; font-weight: 600; white-space: nowrap; }
-    .badge.pendente  { background: #3d1a1a; color: #ff6b6b; }
-    .badge.analise   { background: #2d2200; color: var(--yellow); }
-    .badge.resolvido { background: #0d2e1a; color: var(--green); }
-
-    .mono-sm  { font-family: var(--mono); font-size: 12px; color: var(--dim); }
-    .pedido-id{ font-family: var(--mono); font-size: 12px; color: var(--blue); font-weight: 600; }
-    .val-neg  { font-family: var(--mono); color: var(--accent); font-weight: 600; }
-    .val-zero { font-family: var(--mono); color: var(--dim); }
-
-    /* ── Botões de ação ── */
-    .acao-btns { display: flex; gap: 6px; align-items: center; }
-    .btn-icon {
-      width: 32px; height: 32px; border-radius: 5px; border: none;
-      display: flex; align-items: center; justify-content: center;
-      cursor: pointer; transition: opacity .2s, transform .1s;
-      flex-shrink: 0;
-    }
-    .btn-icon:hover { opacity: .75; transform: scale(1.08); }
-    .btn-icon:active { transform: scale(.95); }
-    .btn-icon.editar  { background: #2d2200; border: 1px solid #f4a26133; }
-    .btn-icon.lixeira { background: #2a0a0a; border: 1px solid #e6394633; }
-    .btn-icon svg { width: 15px; height: 15px; }
-
-    /* ── Empty / Loading ── */
-    .empty { text-align: center; padding: 60px 20px; color: var(--dim); }
-    .empty .icone { font-size: 38px; margin-bottom: 10px; }
-    .empty p { font-family: var(--mono); font-size: 12px; }
-    .spinner {
-      display: inline-block; width: 16px; height: 16px;
-      border: 2px solid var(--border); border-top-color: var(--accent);
-      border-radius: 50%; animation: spin .8s linear infinite;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
-
-    /* ── Toast ── */
-    #toast {
-      position: fixed; bottom: 24px; right: 24px;
-      background: var(--surface2); border: 1px solid var(--border);
-      border-radius: 6px; padding: 11px 18px;
-      font-family: var(--mono); font-size: 12px; color: var(--text);
-      opacity: 0; transform: translateY(8px); transition: all .3s;
-      z-index: 999; pointer-events: none; max-width: 320px;
-    }
-    #toast.show { opacity: 1; transform: translateY(0); }
-    #toast.ok   { border-left: 3px solid var(--green); }
-    #toast.erro { border-left: 3px solid var(--accent); }
-
-
-    /* ── Modal de leitura completa ── */
-    .modal-overlay {
-      position: fixed; inset: 0; background: rgba(0,0,0,.7);
-      display: flex; align-items: center; justify-content: center;
-      z-index: 1000; padding: 20px; opacity: 0; pointer-events: none; transition: opacity .2s;
-    }
-    .modal-overlay.aberto { opacity: 1; pointer-events: all; }
-    .modal-box {
-      background: var(--surface2); border: 1px solid var(--border);
-      border-radius: 10px; padding: 28px; max-width: 560px; width: 100%;
-      max-height: 80vh; overflow-y: auto;
-    }
-    .modal-box h4 { font-family: var(--mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); margin-bottom: 14px; }
-    .modal-box p { font-size: 15px; line-height: 1.7; color: var(--text); white-space: pre-wrap; word-break: break-word; }
-    .modal-fechar {
-      margin-top: 20px; background: var(--accent); color: #fff; border: none;
-      padding: 9px 22px; border-radius: 5px; font-family: var(--mono); font-size: 12px;
-      cursor: pointer; font-weight: 600;
-    }
-    .modal-fechar:hover { opacity: .85; }
-    .texto-clicavel { cursor: pointer; text-decoration: underline dotted; color: var(--blue); }
-    .texto-clicavel:hover { color: #fff; }
-
-    /* ── Responsive ── */
-    @media (max-width: 900px) {
-      header, .lojas-bar { padding: 14px 16px; }
-      main { padding: 16px 16px 60px; }
-      .fgrid { grid-template-columns: 1fr 1fr; }
-      .fgrid .s4 { grid-column: span 2; }
-    }
-    @media (max-width: 580px) {
-      .fgrid { grid-template-columns: 1fr; }
-      .fgrid .s2, .fgrid .s4 { grid-column: span 1; }
-      .cards { grid-template-columns: 1fr 1fr; }
-    }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sistema de Ocorrências</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f5f7fa;--card:#fff;--line:#e3e8ef;--tx:#1b2430;--mut:#637083;--pri:#1f4fd8;--pri-d:#173fb0;--red:#c62828;--amb:#b26a00;--grn:#1e7d46;--rbg:#fdecec;--abg:#fff4e0;--gbg:#e6f4ec}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.45 'IBM Plex Sans',system-ui,Arial,sans-serif}
+header{background:var(--card);border-bottom:1px solid var(--line);padding:14px 24px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+h1{font-size:18px;margin:0;font-weight:600}h2{font-size:15px;margin:0 0 14px;font-weight:600}
+.sub{color:var(--mut);font-size:12px}.st{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--mut)}.dot{width:8px;height:8px;border-radius:50%;background:#bbb}.dot.ok{background:var(--grn)}.dot.err{background:var(--red)}
+main{max-width:1280px;margin:0 auto;padding:20px 24px 48px;display:grid;gap:18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:18px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px 16px}.kpi small{color:var(--mut);display:block}.kpi b{font-size:22px;font-weight:600}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+label{display:block;font-size:12px;color:var(--mut);margin-bottom:4px;font-weight:500}
+input,select,textarea{width:100%;padding:8px 10px;border:1px solid #cfd6e0;border-radius:6px;font:inherit;background:#fff;color:var(--tx)}
+input:focus,select:focus,textarea:focus,button:focus-visible{outline:2px solid var(--pri);outline-offset:1px}
+textarea{resize:vertical;min-height:64px}.wide{grid-column:1/-1}
+button{font:inherit;cursor:pointer;border-radius:6px;padding:8px 14px;border:1px solid #cfd6e0;background:#fff;color:var(--tx);font-weight:500}
+button.pri{background:var(--pri);border-color:var(--pri);color:#fff}button.pri:hover{background:var(--pri-d)}button:hover{background:#f0f3f8}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.chips{display:flex;gap:6px;flex-wrap:wrap}.chip{padding:5px 12px;border-radius:999px;font-size:13px}.chip.on{background:var(--pri);border-color:var(--pri);color:#fff}
+.tw{overflow-x:auto}table{width:100%;border-collapse:collapse;min-width:980px}
+th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}th{font-size:12px;color:var(--mut);font-weight:600;background:#fafbfd;white-space:nowrap}
+td.n{text-align:right;white-space:nowrap}.pl{font-weight:500}
+.bd{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:500;white-space:nowrap}
+.Pendente{background:var(--rbg);color:var(--red)}.Em\ Análise{background:var(--abg);color:var(--amb)}.Resolvido{background:var(--gbg);color:var(--grn)}
+.pg{display:flex;justify-content:space-between;align-items:center;margin-top:12px;color:var(--mut);flex-wrap:wrap;gap:8px}
+.bars{display:grid;gap:8px}.bar{display:grid;grid-template-columns:120px 1fr 110px;gap:10px;align-items:center}.bar i{display:block;height:10px;background:var(--pri);border-radius:5px;min-width:2px}
+.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:18px}
+.rb{display:block;height:10px;background:var(--pri);border-radius:5px}table.sm{min-width:680px}.chip{border-radius:999px}.aviso{background:#fdecec;color:var(--red);border-bottom:1px solid #f3c2c2;padding:10px 24px;font-weight:500}#toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#1b2430;color:#fff;padding:10px 18px;border-radius:6px;opacity:0;pointer-events:none;transition:opacity .2s;z-index:50}#toast.on{opacity:1}.empty{text-align:center;color:var(--mut);padding:28px}
+dialog{border:1px solid var(--line);border-radius:8px;max-width:520px;width:92%;padding:20px}dialog::backdrop{background:rgba(20,30,45,.4)}
+.act button{padding:4px 8px;font-size:12px;margin-right:4px}
+@media(prefers-color-scheme:dark){:root{color-scheme:light}}
+</style>
 </head>
 <body>
-
 <header>
-  <div class="logo">
-    <div class="logo-icon">⚠️</div>
-    <div>
-      <div class="logo-text">Ocorrências</div>
-      <div class="logo-sub">devolucoes-loja · Firestore</div>
-    </div>
-  </div>
-  <div id="conn-status">
-    <div class="dot" id="dot"></div>
-    <span id="conn-txt">conectando…</span>
-  </div>
+  <div><h1>Sistema de Ocorrências</h1><div class="sub">Registro de erros de separação</div></div>
+  <span class="st"><span class="dot" id="dot"></span><span id="stx">Conectando…</span></span>
 </header>
-
-<!-- Filtro rápido por loja -->
-<div class="lojas-bar">
-  <button class="loja-pill ativo" data-loja="Todos"  onclick="filtrarLoja('Todos')">Todas as lojas</button>
-  <button class="loja-pill"       data-loja="Mapu"   onclick="filtrarLoja('Mapu')">Mapu</button>
-  <button class="loja-pill"       data-loja="P&M"    onclick="filtrarLoja('P&M')">P&amp;M</button>
-  <button class="loja-pill"       data-loja="AIVY"   onclick="filtrarLoja('AIVY')">AIVY</button>
-  <button class="loja-pill"       data-loja="Mapupy" onclick="filtrarLoja('Mapupy')">Mapupy</button>
-</div>
-
+<div class="aviso" id="aviso" hidden></div>
+<div id="toast" role="status"></div>
 <main>
-  <!-- Cards resumo -->
-  <div class="cards">
-    <div class="card c-red">
-      <div class="card-label">Prejuízo Total</div>
-      <div class="card-val" id="c-total">R$ 0,00</div>
-    </div>
-    <div class="card c-yellow">
-      <div class="card-label">Pendentes</div>
-      <div class="card-val" id="c-pend">0</div>
-    </div>
-    <div class="card c-green">
-      <div class="card-label">Resolvidos</div>
-      <div class="card-val" id="c-resol">0</div>
-    </div>
-    <div class="card c-blue">
-      <div class="card-label">Total Registros</div>
-      <div class="card-val" id="c-tot">0</div>
-    </div>
-  </div>
+  <section class="kpis" id="kpis"></section>
 
-  <!-- Formulário -->
-  <div class="form-box">
-    <h3 id="form-titulo">▸ Nova Ocorrência</h3>
-    <div class="fgrid">
-      <div class="fg">
-        <label>Data</label>
-        <input type="date" id="f-data"/>
-      </div>
-      <div class="fg">
-        <label>Loja</label>
-        <select id="f-loja">
-          <option value="">— Selecione —</option>
-          <option value="Mapu">Mapu</option>
-          <option value="P&M">P&amp;M</option>
-          <option value="AIVY">AIVY</option>
-          <option value="Mapupy">Mapupy</option>
-        </select>
-      </div>
-      <div class="fg">
-        <label>ID do Pedido</label>
-        <input type="text" id="f-pedido" placeholder="Ex: 100254"/>
-      </div>
-      <div class="fg">
-        <label>Quem errou</label>
-        <input type="text" id="f-pessoa" placeholder="Nome do funcionário"/>
-      </div>
-      <div class="fg s2">
-        <label>Produto</label>
-        <input type="text" id="f-produto" placeholder="Descrição do produto"/>
-      </div>
-      <div class="fg s2">
-        <label>Descrição do Erro</label>
-        <input type="text" id="f-erro" placeholder="O que aconteceu?"/>
-      </div>
-      <div class="fg">
-        <label>Status</label>
-        <select id="f-status">
-          <option value="Pendente">🔴 Pendente</option>
-          <option value="Em Análise">🟡 Em Análise</option>
-          <option value="Resolvido">🟢 Resolvido</option>
-        </select>
-      </div>
-      <div class="fg">
-        <label>Valor Perdido (R$)</label>
-        <input type="number" id="f-valor" step="0.01" placeholder="0.00"/>
-      </div>
+  <section class="card">
+    <h2>Filtros</h2>
+    <div class="grid">
+      <div><label>Plataforma</label><select id="fPlat"></select></div>
+      <div><label>Loja</label><select id="fLoja"></select></div>
+      <div><label>Separador</label><select id="fSep"></select></div>
+      <div><label>Status</label><select id="fStatus"><option value="">Todos</option><option>Pendente</option><option>Em Análise</option><option>Resolvido</option></select></div>
+      <div><label>Data inicial</label><input type="date" id="fDe"></div>
+      <div><label>Data final</label><input type="date" id="fAte"></div>
+      <div class="wide"><label>Buscar (pedido, produto, erro)</label><input id="fQ" placeholder="Digite para buscar"></div>
     </div>
-    <div class="form-actions">
-      <button class="btn-reg" id="btn-salvar" onclick="salvar()">Registrar Ocorrência</button>
-      <button class="btn-cancel" id="btn-cancel" onclick="cancelar()">Cancelar edição</button>
+    <div class="row">
+      <button data-p="hoje">Hoje</button><button data-p="7">7 dias</button><button data-p="30">30 dias</button><button data-p="mes">Este mês</button>
+      <button id="limpar">Limpar filtros</button>
     </div>
-  </div>
+  </section>
 
-  <!-- Filtros -->
-  <div class="filtros">
-    <input type="text" id="f-busca" placeholder="🔍  Buscar por pessoa, pedido, produto, erro…" oninput="filtrar()"/>
-    <select id="f-status-filtro" onchange="filtrar()">
-      <option value="">Todos os status</option>
-      <option value="Pendente">🔴 Pendente</option>
-      <option value="Em Análise">🟡 Em Análise</option>
-      <option value="Resolvido">🟢 Resolvido</option>
-    </select>
-    <button class="btn-csv" onclick="exportarCSV()">⬇ Exportar CSV</button>
-  </div>
+  <section class="two">
+    <div class="card"><h2>Prejuízo por plataforma</h2><div class="bars" id="bPlat"></div></div>
+    <div class="card"><h2>Prejuízo por loja</h2><div class="bars" id="bLoja"></div></div>
+  </section>
 
-  <!-- Tabela -->
-  <div class="tbl-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>Data</th>
-          <th>Loja</th>
-          <th>Pedido</th>
-          <th>Funcionário</th>
-          <th>Produto</th>
-          <th>Erro</th>
-          <th>Status</th>
-          <th>Valor Perdido</th>
-          <th>Ações</th>
-        </tr>
-      </thead>
-      <tbody id="tbody"></tbody>
-    </table>
-    <div id="empty" class="empty">
-      <div class="icone">⏳</div>
-      <p>Conectando ao Firebase…</p>
+  <section class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      <h2 style="margin:0">Ranking de erros por separador</h2>
+      <div class="chips"><button class="chip on" data-rk="erros">Por quantidade</button><button class="chip" data-rk="valor">Por prejuízo</button></div>
     </div>
-  </div>
+    <div class="tw"><table class="sm"><thead><tr><th>Posição</th><th>Nº</th><th>Nome</th><th>Função</th><th style="text-align:right">Erros</th><th style="text-align:right">% do total</th><th style="text-align:right">Prejuízo</th><th></th></tr></thead><tbody id="rk"></tbody></table></div>
+    <div class="sub" style="margin-top:8px">O ranking respeita os filtros acima (plataforma, loja, datas, etc.).</div>
+  </section>
+
+  <section class="card">
+    <h2 id="formTitle">Nova ocorrência</h2>
+    <div class="grid">
+      <div><label>Data</label><input type="date" id="data"></div>
+      <div><label>Plataforma</label><select id="plat"></select></div>
+      <div><label>Loja</label><select id="loja"></select></div>
+      <div><label>ID do pedido</label><input id="pedido"></div>
+      <div><label>Quem errou (nº – nome)</label><select id="func"></select></div>
+      <div><label>Produto</label><input id="prod"></div>
+      <div><label>Status</label><select id="status"><option>Pendente</option><option>Em Análise</option><option>Resolvido</option></select></div>
+      <div><label>Valor perdido (R$)</label><input id="valor" type="number" step="0.01" min="0"></div>
+      <div class="wide"><label>Descrição do erro</label><textarea id="erro"></textarea></div>
+    </div>
+    <div class="row"><button class="pri" id="salvar">Registrar ocorrência</button><button id="cancelar" hidden>Cancelar edição</button></div>
+  </section>
+
+  <section class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      <h2 style="margin:0" id="cnt">Registros</h2><span><button id="bkp">Baixar backup (JSON)</button> <button id="csv">Exportar CSV</button></span>
+    </div>
+    <div class="tw"><table>
+      <thead><tr><th>Data</th><th>Plataforma</th><th>Loja</th><th>Pedido</th><th>Quem errou</th><th>Produto</th><th>Erro</th><th>Status</th><th style="text-align:right">Valor</th><th>Ações</th></tr></thead>
+      <tbody id="tb"></tbody>
+    </table></div>
+    <div class="pg"><span id="pgi"></span><span><button id="prev">Anterior</button> <button id="next">Próxima</button></span></div>
+  </section>
+  <section class="card">
+    <h2 id="pTitle">Cadastro de separadores e funcionários</h2>
+    <div class="grid">
+      <div><label>Número de identificação</label><input id="pnum" placeholder="Ex.: 12"></div>
+      <div><label>Nome</label><input id="pnome"></div>
+      <div><label>Função</label><input id="pfunc" list="funcoes" placeholder="Ex.: Separador"><datalist id="funcoes"></datalist></div>
+    </div>
+    <div class="row"><button class="pri" id="psalvar">Cadastrar</button><button id="pcancel" hidden>Cancelar edição</button></div>
+    <div class="tw" style="margin-top:16px"><table class="sm"><thead><tr><th>Nº</th><th>Nome</th><th>Função</th><th>Erros</th><th>Situação</th><th>Ações</th></tr></thead><tbody id="ptb"></tbody></table></div>
+  </section>
 </main>
 
-<div id="toast"></div>
+<dialog id="dlg"><h2>Descrição completa</h2><p id="dtx" style="white-space:pre-wrap"></p><div class="row"><button onclick="dlg.close()">Fechar</button></div></dialog>
 
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script>
-  // ── Estado ──
-  window._dados = [];
-  let filtroLoja   = "Todos";
-  let editandoId   = null;
-  let dadosFiltrados = [];
+/* ===== COLE AQUI o firebaseConfig que já existe no seu index.html atual ===== */
+const firebaseConfig = {
+  apiKey: "AIzaSyCIHjXjl64jZpUTarTVgTKz_WQ8PsXTG0o",
+  authDomain: "sistema-de-ocorrencias-cc73a.firebaseapp.com",
+  projectId: "sistema-de-ocorrencias-cc73a",
+  storageBucket: "sistema-de-ocorrencias-cc73a.firebasestorage.app",
+  messagingSenderId: "557089551152",
+  appId: "1:557089551152:web:d41dd6319edf7fafe64ef5",
+  measurementId: "G-B33T2PQ29W"
+};
+const COLECAO = "devolucoes-loja";
+const COLECAO_PESSOAS = "separadores";
+const PLATAFORMAS = ["Shopee","Mercado Livre","TikTok Shop","Temu"];
+const LOJAS = ["Mapu","P&M","AIVY","Mapupy"];
+/* ========================================================================== */
 
-  // ── Conexão visual ──
-  function setConn(ok) {
-    document.getElementById('dot').className = 'dot ' + (ok ? 'ok' : 'err');
-    document.getElementById('conn-txt').textContent = ok ? 'conectado' : 'erro de conexão';
-  }
+const $ = id => document.getElementById(id);
+const brl = v => (v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+const esc = s => String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fdata = d => d ? d.split('-').reverse().join('/') : '—';
+const hoje = () => { const t=new Date(); return new Date(t-t.getTimezoneOffset()*6e4).toISOString().slice(0,10); };
+const PAGE = 25;
+let conectou = false, all = [], pes = [], page = 0, editId = null, col = null, pcol = null, pEdit = null, rkSort = 'erros';
+const numCmp=(a,b)=>String(a.numero).localeCompare(String(b.numero),'pt',{numeric:true});
+const lbl=(n,nome)=>n?`${n} – ${nome}`:nome;
+const nomeDe=r=>{const p=pes.find(x=>x.numero===r.numero);return p?p.nome:r.func;};
 
-  // ── Filtro por pill de loja ──
-  function filtrarLoja(loja) {
-    filtroLoja = loja;
-    document.querySelectorAll('.loja-pill').forEach(p => {
-      p.classList.toggle('ativo', p.dataset.loja === loja);
-    });
-    filtrar();
-  }
+// aceita nomes de campos antigos e novos
+function norm(id, d){
+  return { id, data:d.data||d.date||'', plataforma:d.plataforma||'', loja:d.loja||'', pedido:d.pedido||d.idPedido||d.orderId||'',
+    func:d.funcionario||d.func||d.quemErrou||'', numero:String(d.numero||''), prod:d.produto||'', erro:d.erro||d.descricao||'',
+    status:d.status||'Pendente', valor:Number(d.valor ?? d.valorPerdido ?? 0) };
+}
+function fill(sel, list, first){ sel.innerHTML = (first!==undefined?`<option value="">${first}</option>`:'<option value="">— Selecione —</option>') + list.map(x=>`<option>${esc(x)}</option>`).join(''); }
+fill($('fPlat'),PLATAFORMAS,'Todas'); fill($('fLoja'),LOJAS,'Todas'); fill($('plat'),PLATAFORMAS); fill($('loja'),LOJAS);
+$('data').value = hoje();
 
-  // ── Filtro principal ──
-  function filtrar() {
-    const busca  = (document.getElementById('f-busca')?.value || '').toLowerCase();
-    const status = document.getElementById('f-status-filtro')?.value || '';
+function aviso(m){ $('aviso').textContent=m; $('aviso').hidden=false; }
+function toast(m){ const t=$('toast'); t.textContent=m; t.classList.add('on'); setTimeout(()=>t.classList.remove('on'),2200); }
+const espera=(p,ms=10000)=>Promise.race([p,new Promise((_,rj)=>setTimeout(()=>rj({code:'timeout'}),ms))]);
+window.addEventListener('error',ev=>aviso('Erro no sistema: '+ev.message));
+function erroTxt(e){ if(e&&e.code==='timeout') return 'O Firebase não respondeu em 10 segundos, então o registro NÃO foi confirmado. Verifique se o Firestore Database foi criado e se as regras foram publicadas (Firestore Database > Regras), e se a internet está ok.'; return e&&e.code==='permission-denied' ? 'O Firebase bloqueou a gravação. Libere as coleções "'+COLECAO+'" e "'+COLECAO_PESSOAS+'" nas regras do Firestore.' : 'Erro: '+(e&&e.message||e); }
+function setStatus(ok,msg){ $('dot').className='dot '+(ok?'ok':'err'); $('stx').textContent=msg; }
+try{
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.firestore();
+  col = db.collection(COLECAO);
+  pcol = db.collection(COLECAO_PESSOAS);
+  setTimeout(()=>{ if(!conectou) aviso(erroTxt({code:'timeout'})); },8000);
+  if(firebaseConfig.apiKey==='COLE_AQUI'){ aviso('Os registros NÃO estão sendo salvos: falta colar o firebaseConfig no arquivo index.html.'); }
+  pcol.onSnapshot(sn=>{ pes=sn.docs.map(d=>({...d.data(),numero:String(d.data().numero||d.id)})); refreshSeps(); render(); },e=>console.error(e));
+  col.onSnapshot(s=>{ all = s.docs.map(d=>norm(d.id,d.data())).sort((a,b)=>(b.data||'').localeCompare(a.data||'')); conectou=true; if(!s.metadata.fromCache) $('aviso').hidden=true; setStatus(true,s.metadata.fromCache?'Offline: será enviado ao reconectar':'Conectado e salvo na nuvem'); refreshSeps(); render(); },
+    e=>{ setStatus(false,'Erro de conexão'); aviso(erroTxt(e)); console.error(e); });
+}catch(e){ setStatus(false,'Firebase não configurado'); }
 
-    dadosFiltrados = (window._dados || []).filter(d => {
-      const matchLoja   = filtroLoja === 'Todos' || d.loja === filtroLoja;
-      const matchStatus = !status || d.status === status;
-      const matchBusca  = !busca || [d.loja,d.pedido,d.pessoa,d.produto,d.erro]
-        .some(v => v && v.toLowerCase().includes(busca));
-      return matchLoja && matchStatus && matchBusca;
-    });
+function opts(sel,pairs,first){ const cur=sel.value; sel.innerHTML=`<option value="">${first}</option>`+pairs.map(([v,t])=>`<option value="${esc(v)}">${esc(t)}</option>`).join(''); if([...sel.options].some(o=>o.value===cur)) sel.value=cur; }
+function refreshSeps(){
+  const reg=[...pes].sort(numCmp), known=new Set(pes.map(p=>p.numero));
+  const legacy=[...new Set(all.filter(r=>!r.numero||!known.has(r.numero)).map(r=>r.func.trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  opts($('fSep'),[...reg.map(p=>[p.numero,lbl(p.numero,p.nome)]),...legacy.map(n=>[n,n+' (sem nº)'])],'Todos');
+  opts($('func'),reg.filter(p=>p.ativo!==false).map(p=>[p.numero,lbl(p.numero,p.nome)]),'— Selecione —');
+}
+function filtered(){
+  const p=$('fPlat').value,l=$('fLoja').value,s=$('fSep').value,st=$('fStatus').value,de=$('fDe').value,ate=$('fAte').value,q=$('fQ').value.toLowerCase().trim();
+  return all.filter(r=>(!p||r.plataforma===p)&&(!l||r.loja===l)&&(!s||r.numero===s||(!r.numero&&r.func===s))&&(!st||r.status===st)&&(!de||r.data>=de)&&(!ate||r.data<=ate)
+    &&(!q||[r.pedido,r.prod,r.erro,r.func,r.numero].join(' ').toLowerCase().includes(q)));
+}
+function bars(el, rows){
+  const m={}; rows.forEach(r=>{const k=r.k||'—'; m[k]=(m[k]||0)+r.valor;});
+  const e=Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,8), mx=Math.max(1,...e.map(x=>x[1]));
+  el.innerHTML = e.length ? e.map(([k,v])=>`<div class="bar"><span>${esc(k)}</span><i style="width:${v/mx*100}%"></i><span style="text-align:right">${brl(v)}</span></div>`).join('') : '<div class="empty">Sem dados</div>';
+}
+function ranking(rows){
+  const m={}; rows.forEach(r=>{const k=r.numero||r.func||'—'; const o=m[k]||(m[k]={numero:r.numero,nome:nomeDe(r)||'—',n:0,v:0}); o.n++; o.v+=r.valor;});
+  const list=Object.values(m).map(o=>{const p=pes.find(x=>x.numero===o.numero); return {...o,funcao:p?p.funcao:'—'};});
+  const val=o=>rkSort==='erros'?o.n:o.v;
+  list.sort((a,b)=>val(b)-val(a)||b.v-a.v||b.n-a.n);
+  const tn=rows.length||1, mx=Math.max(1,...list.map(val));
+  $('rk').innerHTML=list.length?list.map((o,i)=>`<tr><td class="pl">${i+1}º</td><td>${esc(o.numero||'—')}</td><td>${esc(o.nome)}</td><td>${esc(o.funcao)}</td><td class="n">${o.n}</td><td class="n">${Math.round(o.n/tn*100)}%</td><td class="n">${brl(o.v)}</td><td style="min-width:120px"><i class="rb" style="width:${val(o)/mx*100}%"></i></td></tr>`).join(''):'<tr><td colspan="8" class="empty">Sem dados para os filtros selecionados.</td></tr>';
+}
+function renderPes(){
+  $('funcoes').innerHTML=[...new Set(pes.map(p=>(p.funcao||'').trim()).filter(Boolean))].map(f=>`<option value="${esc(f)}">`).join('');
+  const cnt={}; all.forEach(r=>{if(r.numero)cnt[r.numero]=(cnt[r.numero]||0)+1;});
+  $('ptb').innerHTML=pes.length?[...pes].sort(numCmp).map(p=>{const at=p.ativo!==false;return `<tr><td class="pl">${esc(p.numero)}</td><td>${esc(p.nome)}</td><td>${esc(p.funcao||'')}</td><td>${cnt[p.numero]||0}</td><td><span class="bd ${at?'Resolvido':'Pendente'}">${at?'Ativo':'Inativo'}</span></td><td class="act"><button data-pe="${esc(p.numero)}">Editar</button><button data-pa="${esc(p.numero)}">${at?'Inativar':'Ativar'}</button><button data-px="${esc(p.numero)}">Excluir</button></td></tr>`;}).join(''):'<tr><td colspan="6" class="empty">Nenhuma pessoa cadastrada. Cadastre o primeiro acima.</td></tr>';
+}
+function render(){
+  const rows=filtered(), tot=rows.reduce((a,r)=>a+r.valor,0), n=rows.length;
+  const c=s=>rows.filter(r=>r.status===s).length;
+  $('kpis').innerHTML=[['Prejuízo total',brl(tot)],['Ticket médio',brl(n?tot/n:0)],['Pendentes',c('Pendente')],['Em análise',c('Em Análise')],['Resolvidos',c('Resolvido')],['Registros',n]]
+    .map(([a,b])=>`<div class="kpi"><small>${a}</small><b>${b}</b></div>`).join('');
+  bars($('bPlat'),rows.map(r=>({k:r.plataforma,valor:r.valor}))); bars($('bLoja'),rows.map(r=>({k:r.loja,valor:r.valor}))); ranking(rows); renderPes();
+  const pages=Math.max(1,Math.ceil(n/PAGE)); if(page>=pages) page=pages-1;
+  const sl=rows.slice(page*PAGE,page*PAGE+PAGE);
+  $('cnt').textContent=`Registros (${n})`;
+  $('tb').innerHTML = sl.length ? sl.map(r=>`<tr>
+    <td>${fdata(r.data)}</td><td>${esc(r.plataforma||'—')}</td><td>${esc(r.loja)}</td><td>${esc(r.pedido)}</td><td>${esc(lbl(r.numero,nomeDe(r)))}</td><td>${esc(r.prod)}</td>
+    <td>${r.erro.length>60?esc(r.erro.slice(0,60))+`… <a href="#" data-v="${r.id}">ver</a>`:esc(r.erro)}</td>
+    <td><span class="bd ${r.status}">${r.status}</span></td><td class="n pl">${brl(r.valor)}</td>
+    <td class="act"><button data-e="${r.id}">Editar</button><button data-x="${r.id}">Excluir</button></td></tr>`).join('')
+    : '<tr><td colspan="10" class="empty">Nenhuma ocorrência encontrada com esses filtros.</td></tr>';
+  $('pgi').textContent=`Página ${page+1} de ${pages}`; $('prev').disabled=page===0; $('next').disabled=page>=pages-1;
+}
+['fPlat','fLoja','fSep','fStatus','fDe','fAte','fQ'].forEach(id=>$(id).addEventListener('input',()=>{page=0;render();}));
+$('prev').onclick=()=>{page--;render();}; $('next').onclick=()=>{page++;render();};
+$('limpar').onclick=()=>{['fPlat','fLoja','fSep','fStatus','fDe','fAte','fQ'].forEach(i=>$(i).value='');page=0;render();};
+document.querySelectorAll('[data-p]').forEach(b=>b.onclick=()=>{
+  const p=b.dataset.p,t=new Date(),iso=d=>new Date(d-d.getTimezoneOffset()*6e4).toISOString().slice(0,10);
+  let de=new Date(t); if(p==='7')de.setDate(t.getDate()-6); else if(p==='30')de.setDate(t.getDate()-29); else if(p==='mes')de=new Date(t.getFullYear(),t.getMonth(),1);
+  $('fDe').value=iso(de); $('fAte').value=iso(t); page=0; render();
+});
 
-    renderTabela();
-  }
-
-  // ── Render tabela ──
-  function renderTabela() {
-    const tbody = document.getElementById('tbody');
-    const empty = document.getElementById('empty');
-
-    if (!dadosFiltrados.length) {
-      tbody.innerHTML = '';
-      empty.style.display = '';
-      empty.innerHTML = '<div class="icone">📭</div><p>Nenhum registro encontrado.</p>';
-      return;
-    }
-    empty.style.display = 'none';
-
-    // SVG icons
-    const iconEdit = `<svg viewBox="0 0 24 24" fill="none" stroke="#f4a261" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
-    const iconDel  = `<svg viewBox="0 0 24 24" fill="none" stroke="#ff6b6b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>`;
-
-    tbody.innerHTML = dadosFiltrados.map(d => {
-      const valor = parseFloat(d.valor) || 0;
-      const sc    = d.status === 'Resolvido' ? 'resolvido' : d.status === 'Em Análise' ? 'analise' : 'pendente';
-      const se    = d.status === 'Resolvido' ? '🟢' : d.status === 'Em Análise' ? '🟡' : '🔴';
-      const lojaClass = d.loja === 'P&M' ? 'PM' : (d.loja || '');
-      const idEsc = d.id.replace(/'/g, "\\'");
-      return `<tr>
-        <td class="mono-sm">${fmtData(d.data)}</td>
-        <td><span class="loja-tag ${lojaClass}">${d.loja || '-'}</span></td>
-        <td class="pedido-id">${d.pedido || '-'}</td>
-        <td>${d.pessoa || '-'}</td>
-        <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(d.produto)}">${d.produto || '-'}</td>
-        <td style="max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span class="texto-clicavel" onclick="abrirModal('Descrição do Erro', '${esc(d.erro)}')" title="Clique para ler completo">${d.erro || '-'}</span></td>
-        <td><span class="badge ${sc}">${se} ${d.status}</span></td>
-        <td class="${valor > 0 ? 'val-neg' : 'val-zero'}">${moeda(valor)}</td>
-        <td>
-          <div class="acao-btns">
-            <button class="btn-icon editar"  title="Editar"  onclick="editar('${idEsc}')">${iconEdit}</button>
-            <button class="btn-icon lixeira" title="Excluir" onclick="deletar('${idEsc}')">${iconDel}</button>
-          </div>
-        </td>
-      </tr>`;
-    }).join('');
-  }
-
-  // ── Cards resumo (baseado em TODOS os dados, não só filtrados) ──
-  function atualizarCards() {
-    const lista = window._dados || [];
-    const total = lista.reduce((s,d) => s + (parseFloat(d.valor)||0), 0);
-    document.getElementById('c-total').textContent = moeda(total);
-    document.getElementById('c-pend').textContent  = lista.filter(d=>d.status==='Pendente').length;
-    document.getElementById('c-resol').textContent = lista.filter(d=>d.status==='Resolvido').length;
-    document.getElementById('c-tot').textContent   = lista.length;
-  }
-
-  // ── Salvar / Atualizar ──
-  async function salvar() {
-    const campos = {
-      data:    document.getElementById('f-data').value,
-      loja:    document.getElementById('f-loja').value,
-      pedido:  document.getElementById('f-pedido').value.trim(),
-      pessoa:  document.getElementById('f-pessoa').value.trim(),
-      produto: document.getElementById('f-produto').value.trim(),
-      erro:    document.getElementById('f-erro').value.trim(),
-      status:  document.getElementById('f-status').value,
-      valor:   parseFloat(document.getElementById('f-valor').value) || 0,
-    };
-
-    if (!campos.data || !campos.loja || !campos.pedido || !campos.pessoa || !campos.produto || !campos.erro) {
-      toast('Preencha todos os campos obrigatórios.', 'erro'); return;
-    }
-
-    const btn = document.getElementById('btn-salvar');
-    btn.textContent = '…'; btn.disabled = true;
-
-    try {
-      if (editandoId) {
-        await window.fbAtualizar(editandoId, campos);
-        toast('Ocorrência atualizada! ✓', 'ok');
-        cancelar();
-      } else {
-        await window.fbSalvar(campos);
-        toast('Ocorrência registrada! ✓', 'ok');
-        limparForm();
-      }
-    } catch(e) {
-      toast('Erro ao salvar: ' + e.message, 'erro');
-    }
-
-    btn.disabled = false;
-    resetBtn();
-  }
-
-  // ── Editar ──
-  function editar(id) {
-    const item = window._dados.find(d => d.id === id);
-    if (!item) return;
-    editandoId = id;
-    document.getElementById('f-data').value    = item.data || '';
-    document.getElementById('f-loja').value    = item.loja || '';
-    document.getElementById('f-pedido').value  = item.pedido || '';
-    document.getElementById('f-pessoa').value  = item.pessoa || '';
-    document.getElementById('f-produto').value = item.produto || '';
-    document.getElementById('f-erro').value    = item.erro || '';
-    document.getElementById('f-status').value  = item.status || 'Pendente';
-    document.getElementById('f-valor').value   = item.valor || 0;
-
-    const btn = document.getElementById('btn-salvar');
-    btn.textContent = 'Atualizar Ocorrência';
-    btn.classList.add('edit');
-    document.getElementById('btn-cancel').classList.add('show');
-    document.getElementById('form-titulo').textContent = '✏️ Editando Ocorrência';
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }
-
-  // ── Deletar ──
-  async function deletar(id) {
-    if (!confirm('Apagar este registro permanentemente?')) return;
-    try {
-      await window.fbDeletar(id);
-      toast('Registro excluído.', 'ok');
-      if (editandoId === id) cancelar();
-    } catch(e) {
-      toast('Erro ao excluir: ' + e.message, 'erro');
-    }
-  }
-
-  // ── Cancelar edição ──
-  function cancelar() {
-    editandoId = null;
-    limparForm();
-    resetBtn();
-    document.getElementById('btn-cancel').classList.remove('show');
-    document.getElementById('form-titulo').textContent = '▸ Nova Ocorrência';
-  }
-
-  function resetBtn() {
-    const btn = document.getElementById('btn-salvar');
-    btn.textContent = 'Registrar Ocorrência';
-    btn.classList.remove('edit');
-    btn.disabled = false;
-  }
-
-  function limparForm() {
-    ['f-pedido','f-pessoa','f-produto','f-erro','f-valor'].forEach(id => {
-      document.getElementById(id).value = '';
-    });
-    document.getElementById('f-loja').value   = '';
-    document.getElementById('f-status').value = 'Pendente';
-  }
-
-  // ── Exportar CSV ──
-  function exportarCSV() {
-    if (!dadosFiltrados.length) { toast('Nenhum dado para exportar.', 'erro'); return; }
-    const header = ['Data','Loja','Pedido','Funcionário','Produto','Erro','Status','Valor'];
-    const rows = dadosFiltrados.map(d =>
-      [d.data,d.loja,d.pedido,d.pessoa,d.produto,d.erro,d.status,d.valor]
-      .map(v => `"${String(v||'').replace(/"/g,'""')}"`).join(',')
-    );
-    const csv  = [header.join(','), ...rows].join('\n');
-    const blob = new Blob(['\uFEFF'+csv], { type:'text/csv;charset=utf-8;' });
-    const a    = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'ocorrencias.csv';
-    a.click();
-    toast('CSV exportado! ✓', 'ok');
-  }
-
-  // ── Utilitários ──
-  function fmtData(iso) {
-    if (!iso) return '-';
-    const [a,m,d] = iso.split('-');
-    return `${d}/${m}/${a}`;
-  }
-  function moeda(v) {
-    return (parseFloat(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
-  }
-  function esc(s) {
-    return String(s||'').replace(/"/g,'&quot;').replace(/</g,'&lt;');
-  }
-
-  let _toastTimer;
-  function toast(msg, tipo='ok') {
-    const el = document.getElementById('toast');
-    el.textContent = msg;
-    el.className = 'show ' + tipo;
-    clearTimeout(_toastTimer);
-    _toastTimer = setTimeout(() => el.className = '', 3500);
-  }
-
-
-  function abrirModal(titulo, texto) {
-    document.getElementById('modalTitulo').textContent = titulo;
-    document.getElementById('modalTexto').textContent = texto;
-    document.getElementById('modalOverlay').classList.add('aberto');
-  }
-  function fecharModal(e) {
-    if (e.target === document.getElementById('modalOverlay')) {
-      document.getElementById('modalOverlay').classList.remove('aberto');
-    }
-  }
-
-  // Data de hoje no formulário
-  window.addEventListener('DOMContentLoaded', () => {
-    document.getElementById('f-data').value = new Date().toISOString().split('T')[0];
-  });
+$('tb').addEventListener('click',async e=>{
+  const t=e.target, id=t.dataset.e||t.dataset.x||t.dataset.v; if(!id) return; e.preventDefault();
+  const r=all.find(x=>x.id===id);
+  if(t.dataset.v){ $('dtx').textContent=r.erro; $('dlg').showModal(); }
+  else if(t.dataset.x){ if(confirm('Excluir esta ocorrência? Esta ação não pode ser desfeita.')) col.doc(id).delete().catch(err=>alert('Erro ao excluir: '+err.message)); }
+  else { editId=id; $('data').value=r.data; $('plat').value=r.plataforma; $('loja').value=r.loja; $('pedido').value=r.pedido; {const v=r.numero; if(v&&![...$('func').options].some(o=>o.value===v)) $('func').add(new Option(lbl(v,nomeDe(r)),v)); $('func').value=v;} $('prod').value=r.prod;
+    $('status').value=r.status; $('valor').value=r.valor; $('erro').value=r.erro; $('formTitle').textContent='Editar ocorrência'; $('salvar').textContent='Salvar alterações'; $('cancelar').hidden=false; scrollTo({top:document.querySelector('#formTitle').offsetTop-20,behavior:'smooth'}); }
+});
+function reset(){ editId=null; ['pedido','prod','valor','erro'].forEach(i=>$(i).value=''); $('func').value='';$('plat').value='';$('loja').value='';$('status').value='Pendente';$('data').value=hoje();
+  $('formTitle').textContent='Nova ocorrência'; $('salvar').textContent='Registrar ocorrência'; $('cancelar').hidden=true; }
+$('cancelar').onclick=reset;
+$('salvar').onclick=async()=>{
+  const d={data:$('data').value,plataforma:$('plat').value,loja:$('loja').value,pedido:$('pedido').value.trim(),numero:$('func').value,funcionario:(pes.find(x=>x.numero===$('func').value)||{}).nome||'',
+    produto:$('prod').value.trim(),erro:$('erro').value.trim(),status:$('status').value,valor:parseFloat($('valor').value)||0};
+  if(!d.data||!d.plataforma||!d.loja||!d.pedido||!d.numero){ alert('Preencha data, plataforma, loja, pedido e quem errou (cadastre a pessoa abaixo, se ainda não existir).'); return; }
+  $('salvar').disabled=true; const tx=$('salvar').textContent; $('salvar').textContent='Salvando…';
+  try{ await espera(editId ? col.doc(editId).update(d) : col.add({...d,criadoEm:firebase.firestore.FieldValue.serverTimestamp()})); reset(); toast('Ocorrência salva'); }
+  catch(err){ alert(erroTxt(err)); }
+  $('salvar').disabled=false; if($('salvar').textContent==='Salvando…') $('salvar').textContent=tx;
+};
+$('bkp').onclick=()=>{
+  const dados={geradoEm:new Date().toISOString(),ocorrencias:all,pessoas:pes};
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([JSON.stringify(dados,null,2)],{type:'application/json'})); a.download=`backup_ocorrencias_${hoje()}.json`; a.click();
+};
+$('csv').onclick=()=>{
+  const rows=filtered(), h=['Data','Plataforma','Loja','Pedido','Nº','Separador','Produto','Erro','Status','Valor'];
+  const q=v=>'"'+String(v).replace(/"/g,'""')+'"';
+  const csv='\uFEFF'+[h,...rows.map(r=>[fdata(r.data),r.plataforma,r.loja,r.pedido,r.numero,nomeDe(r),r.prod,r.erro,r.status,r.valor.toFixed(2).replace('.',',')])].map(r=>r.map(q).join(';')).join('\n');
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'})); a.download=`ocorrencias_${hoje()}.csv`; a.click();
+};
+document.querySelectorAll('[data-rk]').forEach(b=>b.onclick=()=>{rkSort=b.dataset.rk;document.querySelectorAll('[data-rk]').forEach(x=>x.classList.toggle('on',x===b));render();});
+function resetP(){pEdit=null;$('pnum').value='';$('pnum').disabled=false;$('pnome').value='';$('pfunc').value='';$('pTitle').textContent='Cadastro de separadores e funcionários';$('psalvar').textContent='Cadastrar';$('pcancel').hidden=true;}
+$('pcancel').onclick=resetP;
+$('psalvar').onclick=async()=>{
+  const numero=$('pnum').value.trim(), nome=$('pnome').value.trim(), funcao=$('pfunc').value.trim();
+  if(!numero||!nome){alert('Informe o número e o nome.');return;}
+  if(!/^[A-Za-z0-9_-]+$/.test(numero)){alert('O número deve ter só letras, números, hífen ou sublinhado.');return;}
+  if(!pEdit&&pes.some(p=>p.numero===numero)){alert('Já existe alguém com o número '+numero+'.');return;}
+  $('psalvar').disabled=true; const tx=$('psalvar').textContent; $('psalvar').textContent='Salvando…';
+  try{ await espera(pcol.doc(numero).set(pEdit?{numero,nome,funcao}:{numero,nome,funcao,ativo:true},{merge:true})); resetP(); toast('Cadastro salvo'); }
+  catch(err){alert(erroTxt(err));}
+  $('psalvar').disabled=false; if($('psalvar').textContent==='Salvando…') $('psalvar').textContent=tx;
+};
+$('ptb').addEventListener('click',async e=>{
+  const t=e.target, n=t.dataset.pe||t.dataset.pa||t.dataset.px; if(!n) return;
+  const p=pes.find(x=>x.numero===n);
+  if(t.dataset.pe){pEdit=n;$('pnum').value=n;$('pnum').disabled=true;$('pnome').value=p.nome;$('pfunc').value=p.funcao||'';$('pTitle').textContent='Editar cadastro';$('psalvar').textContent='Salvar alterações';$('pcancel').hidden=false;$('pnome').focus();}
+  else if(t.dataset.pa){pcol.doc(n).update({ativo:p.ativo===false}).catch(err=>alert('Erro: '+err.message));}
+  else if(confirm('Excluir '+p.nome+'? As ocorrências antigas continuam registradas. Para só tirar da lista de escolha, use Inativar.')) pcol.doc(n).delete().catch(err=>alert('Erro: '+err.message));
+});
+render();
 </script>
-
-<!-- Modal leitura completa -->
-<div class="modal-overlay" id="modalOverlay" onclick="fecharModal(event)">
-  <div class="modal-box">
-    <h4 id="modalTitulo">Descrição completa</h4>
-    <p id="modalTexto"></p>
-    <button class="modal-fechar" onclick="document.getElementById('modalOverlay').classList.remove('aberto')">Fechar</button>
-  </div>
-</div>
-
 </body>
 </html>
